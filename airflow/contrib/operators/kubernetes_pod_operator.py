@@ -20,6 +20,7 @@ import warnings
 
 from airflow.exceptions import AirflowException
 from airflow.models import BaseOperator
+from airflow.models import XCOM_RETURN_KEY
 from airflow.utils.decorators import apply_defaults
 from airflow.contrib.kubernetes import kube_client, pod_generator, pod_launcher
 from airflow.contrib.kubernetes.pod import Resources
@@ -253,12 +254,13 @@ class KubernetesPodOperator(BaseOperator):  # pylint: disable=too-many-instance-
                 if self.is_delete_operator_pod:
                     launcher.delete_pod(pod)
 
+            if self.do_xcom_push:
+                self.xcom_push(context, XCOM_RETURN_KEY, result)
+
             if final_state != State.SUCCESS:
                 raise AirflowException(
                     'Pod returned a failure: {state}'.format(state=final_state)
                 )
-            if self.do_xcom_push:
-                return result
         except AirflowException as ex:
             raise AirflowException('Pod Launching failed: {error}'.format(error=ex))
 
