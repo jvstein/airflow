@@ -21,6 +21,7 @@ from unittest import mock
 
 import pendulum
 import pytest
+from kubernetes.client import models as k8s
 from sqlalchemy import insert, select
 
 from airflow.models.asset import AssetModel, DagScheduleAssetReference
@@ -1095,6 +1096,56 @@ class TestDagDetails(TestDagEndpoint):
         assert "is_favorite" in body
         assert isinstance(body["is_favorite"], bool)
         assert body["is_favorite"] is False
+
+    @pytest.mark.usefixtures("configure_git_connection_for_dag_bundle")
+    def test_dag_details_with_k8s_executor_config_in_default_args(self, dag_maker, session, test_client):
+        """Test that DAG details serialize default_args containing a V1Pod (executor_config)."""
+        dag_id = "test_dag_k8s_executor_config"
+        with dag_maker(
+            dag_id,
+            schedule=None,
+            start_date=DAG2_START_DATE,
+            default_args={
+                "retries": 2,
+                "executor_config": {
+                    "pod_override": k8s.V1Pod(
+                        spec=k8s.V1PodSpec(
+                            containers=[
+                                k8s.V1Container(
+                                    name="base",
+                                    resources=k8s.V1ResourceRequirements(
+                                        requests={"cpu": "100m", "memory": "1Gi"},
+                                        limits={"memory": "4Gi"},
+                                    ),
+                                )
+                            ]
+                        )
+                    )
+                },
+            },
+        ):
+            EmptyOperator(task_id="op1")
+        dag_maker.sync_dagbag_to_db()
+        session.commit()
+
+        response = test_client.get(f"/dags/{dag_id}/details")
+        assert response.status_code == 200
+
+        body = response.json()
+        default_args = body["default_args"]
+        assert default_args["__type"] == "dict"
+        inner = default_args["__var"]
+        assert inner["retries"] == 2
+
+        # executor_config.pod_override should be serialized via BaseSerialization
+        executor_config = inner["executor_config"]["__var"]
+        pod_encoded = executor_config["pod_override"]
+        assert pod_encoded["__type"] == "k8s.V1Pod"
+        pod_dict = pod_encoded["__var"]
+        container = pod_dict["spec"]["containers"][0]
+        assert container["name"] == "base"
+        assert container["resources"]["requests"] == {"cpu": "100m", "memory": "1Gi"}
+        assert container["resources"]["limits"] == {"memory": "4Gi"}
 
 
 class TestGetDag(TestDagEndpoint):

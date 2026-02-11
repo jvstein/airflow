@@ -189,6 +189,16 @@ class DAGDetailsResponse(DAGResponse):
             return None
         return {k: v.dump() for k, v in params.items()}
 
+    @field_validator("default_args", mode="before")
+    @classmethod
+    def get_default_args(cls, default_args: abc.Mapping | None) -> dict | None:
+        """Convert default_args to a JSON-serializable dict."""
+        if default_args is None:
+            return None
+        from airflow.serialization.serialized_objects import BaseSerialization
+
+        return BaseSerialization.serialize(dict(default_args))
+
     # Mypy issue https://github.com/python/mypy/issues/1362
     @computed_field(deprecated=True)  # type: ignore[prop-decorator]
     @property
