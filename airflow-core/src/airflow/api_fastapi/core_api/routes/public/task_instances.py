@@ -462,11 +462,16 @@ def get_task_instances(
         select(TI).join(TI.dag_run).outerjoin(TI.dag_version).options(*eager_load_TI_and_TIH_for_validation())
     )
     if dag_run_id != "~":
-        dag_run = session.scalar(select(DagRun).filter_by(run_id=dag_run_id))
+        if dag_id == "~":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "dag_id is required when dag_run_id is specified",
+            )
+        dag_run = session.scalar(select(DagRun).where(DagRun.dag_id == dag_id, DagRun.run_id == dag_run_id))
         if not dag_run:
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND,
-                f"DagRun with run_id: `{dag_run_id}` was not found",
+                f"DagRun with dag_id: `{dag_id}` and run_id: `{dag_run_id}` was not found",
             )
         query = query.where(TI.run_id == dag_run_id)
     if dag_id != "~":
